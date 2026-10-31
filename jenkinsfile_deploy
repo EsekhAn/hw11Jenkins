@@ -1,0 +1,62 @@
+pipeline {
+    agent { label 'build-node-01' }
+
+    parameters {
+        string(name: 'IMAGE_TAG', defaultValue: 'v1.0', description: 'Тег образа')
+        string(name: 'GIT_BRANCH', defaultValue: 'home_work', description: 'Ветка репозитория')
+    }
+
+    environment {
+        NEXUS_REGISTRY = '158.160.226.173:8082'
+        IMAGE_NAME     = 'hwdocker'
+        FULL_IMAGE     = "${NEXUS_REGISTRY}/${IMAGE_NAME}:${params.IMAGE_TAG}"
+        BUILD_IMAGE    = 'maven:3.9-eclipse-temurin-17'
+    }
+
+    stages {
+
+        stage('Checkout') {
+            steps {
+                git(
+                    url: 'https://github.com/EsekhAn/HWDocker.git',
+                    branch: "${params.GIT_BRANCH}"
+                )
+            }
+        }
+
+        stage('Build WAR (in Docker Container)') {
+            agent {
+                docker {
+                    image "${BUILD_IMAGE}"
+                    reuseNode true
+                }
+            }
+            steps {
+                sh 'mvn clean package -DskipTests'
+                sh 'ls -la target/*.war'
+            }
+        }
+
+        stage('Build Docker Image') {
+            steps {
+                sh 'cp target/*.war .'
+                sh "docker build -f Dockerfile.pack -t ${FULL_IMAGE} ."
+            }
+        }
+        stage('Push to Nexus') {
+            steps {
+                withCredentials([usernamePassword(
+                    credentialsId: 'nexus-docker-creds',
+                    usernameVariable: 'NEXUS_USER',
+                    passwordVariable: 'NEXUS_PASS'
+                )]) {
+                    sh '''
+                        echo "$NEXUS_PASS" | docker login "$NEXUS_REGISTRY" -u "$NEXUS_USER" --password-stdin
+                        docker push "$FULL_IMAGE"
+                        docker logout "$NEXUS_REGISTRY"
+                    '''
+                }
+            }
+        }
+    }
+}
