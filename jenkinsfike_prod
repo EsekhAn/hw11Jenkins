@@ -1,0 +1,27 @@
+pipeline {
+    agent { label 'prod-node-01' }
+
+    environment {
+        NEXUS = '158.160.226.173:8082'
+        IMAGE = "${NEXUS}/hwdocker:v1.0"
+    }
+
+    stages {
+        stage('Deploy') {
+            steps {
+                withCredentials([usernamePassword(
+                    credentialsId: 'nexus-docker-creds',
+                    usernameVariable: 'U',
+                    passwordVariable: 'P'
+                )]) {
+                    sh '''
+                        echo "$P" | docker login "$NEXUS" -u "$U" --password-stdin
+                        docker pull "$IMAGE"
+                        docker rm -f hwdocker-app || true
+                        docker run -d --name hwdocker-app --restart unless-stopped -p 8080:8080 "$IMAGE"
+                    '''
+                }
+            }
+        }
+    }
+}
